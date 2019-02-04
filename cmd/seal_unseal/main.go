@@ -165,7 +165,7 @@ func unsealSecret(pcr int, tpmPath, password, filename string) (retErr error) {
 
 	fmt.Printf("Loaded secrets objectHandle: 0x%x\n", objectHandle)
 	// Create the authorization session
-	sessHandle, _, err := policyPCRPasswordSession(rwc, pcr, objectPassword)
+	sessHandle, _, err := policyPCRPasswordSession(rwc, pcr, password)
 	if err != nil {
 		return fmt.Errorf("unable to get auth session: %v", err)
 	}
@@ -176,7 +176,7 @@ func unsealSecret(pcr int, tpmPath, password, filename string) (retErr error) {
 	}()
 
 	// Unseal the data
-	unsealedData, err := tpm2.UnsealWithSession(rwc, sessHandle, objectHandle, objectPassword)
+	unsealedData, err := tpm2.UnsealWithSession(rwc, sessHandle, objectHandle, password)
 	if err != nil {
 		return fmt.Errorf("unable to unseal data: %v", err)
 	}

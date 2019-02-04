@@ -203,5 +203,45 @@ func pemDecode(enc []byte) ([]byte, []byte, error) {
 }
 
 func policyPCRPasswordSession(rwc io.ReadWriteCloser, pcr int, password string) (sessHandle tpmutil.Handle, policy []byte, retErr error) {
-	return tpm2.HandlePasswordSession, nil, nil
+
+	// FYI, this is not a very secure session.
+	sessHandle, _, err := tpm2.StartAuthSession(
+		rwc,
+		tpm2.HandleNull,  /*tpmKey*/
+		tpm2.HandleNull,  /*bindKey*/
+		make([]byte, 16), /*nonceCaller*/
+		nil,              /*secret*/
+		tpm2.SessionPolicy,
+		tpm2.AlgNull,
+		tpm2.AlgSHA256)
+	if err != nil {
+		return tpm2.HandleNull, nil, fmt.Errorf("unable to start session: %v", err)
+	}
+	defer func() {
+		if sessHandle != tpm2.HandleNull && err != nil {
+			if err := tpm2.FlushContext(rwc, sessHandle); err != nil {
+				retErr = fmt.Errorf("%v\nunable to flush session: %v", retErr, err)
+			}
+		}
+	}()
+
+	pcrSelection := tpm2.PCRSelection{
+		Hash: tpm2.AlgSHA256,
+		PCRs: []int{pcr},
+	}
+
+	// An empty expected digest means that digest verification is skipped.
+	if err := tpm2.PolicyPCR(rwc, sessHandle, nil /*expectedDigest*/, pcrSelection); err != nil {
+		return sessHandle, nil, fmt.Errorf("unable to bind PCRs to auth policy: %v", err)
+	}
+
+	if err := tpm2.PolicyPassword(rwc, sessHandle); err != nil {
+		return sessHandle, nil, fmt.Errorf("unable to require password for auth policy: %v", err)
+	}
+
+	policy, err = tpm2.PolicyGetDigest(rwc, sessHandle)
+	if err != nil {
+		return sessHandle, nil, fmt.Errorf("unable to get policy digest: %v", err)
+	}
+	return sessHandle, policy, nil
 }

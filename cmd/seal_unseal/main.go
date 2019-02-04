@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"encoding/hex"
+	"encoding/pem"
 	"flag"
 	"fmt"
 	"io"
@@ -93,10 +95,34 @@ func run(pcr int, tpmPath string) (retErr error) {
 	if err != nil {
 		return fmt.Errorf("unable to seal data: %v", err)
 	}
-	fmt.Printf("Sealed public: 0x%x\nSealed private: 0x%x\n", publicArea, privateArea)
+
+	enc, err := pemEncode(publicArea, privateArea)
+	if err != nil {
+		return err
+	}
+	fmt.Println(enc)
 
 	// DONE
 	return nil
+}
+
+func pemEncode(public, private []byte) (string, error) {
+	buf := new(bytes.Buffer)
+	publicBlock := &pem.Block{
+		Type:  "SEALED PUBLIC",
+		Bytes: public,
+	}
+	privateBlock := &pem.Block{
+		Type:  "SEALED PRIVATE",
+		Bytes: private,
+	}
+	if err := pem.Encode(buf, publicBlock); err != nil {
+		return "", err
+	}
+	if err := pem.Encode(buf, privateBlock); err != nil {
+		return "", err
+	}
+	return buf.String(), nil
 }
 
 func policyPCRPasswordSession(rwc io.ReadWriteCloser, pcr int, password string) (sessHandle tpmutil.Handle, policy []byte, retErr error) {

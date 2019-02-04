@@ -123,12 +123,47 @@ func sealSecret(pcr int, tpmPath, password, filename string) (retErr error) {
 
 func unsealSecret(pcr int, tpmPath, password, filename string) (retErr error) {
 	fmt.Println("***** UNSEAL SECRET *****")
+	// Open the TPM
+	rwc, err := tpm2.OpenTPM(tpmPath)
+	if err != nil {
+		return fmt.Errorf("can't open TPM %q: %v", tpmPath, err)
+	}
+	defer func() {
+		if err := rwc.Close(); err != nil {
+			retErr = fmt.Errorf("%v\ncan't close TPM %q: %v", retErr, tpmPath, err)
+		}
+	}()
+
+	srkHandle, publicKey, err := tpm2.CreatePrimary(rwc, tpm2.HandleOwner, tpm2.PCRSelection{}, "", srkPassword, srkTemplate)
+	if err != nil {
+		return fmt.Errorf("can't create primary key: %v", err)
+	}
+	defer func() {
+		if err := tpm2.FlushContext(rwc, srkHandle); err != nil {
+			retErr = fmt.Errorf("%v\nunable to flush SRK handle %q: %v", retErr, srkHandle, err)
+		}
+	}()
+
+	fmt.Printf("SRK Handle: 0x%x\nSRK publicKey: %v\n", srkHandle, publicKey)
+
 	keyData, err := ioutil.ReadFile(filename)
 	privateArea, publicArea, err := pemDecode(keyData)
 	if err != nil {
 		return err
 	}
-	fmt.Printf("Decoded private: %s\nDecoded public: %s\n", hex.EncodeToString(privateArea), hex.EncodeToString(publicArea))
+
+	// Load the sealed data into the TPM.
+	objectHandle, _, err := tpm2.Load(rwc, srkHandle, srkPassword, publicArea, privateArea)
+	if err != nil {
+		return fmt.Errorf("unable to load data: %v", err)
+	}
+	defer func() {
+		if err := tpm2.FlushContext(rwc, objectHandle); err != nil {
+			retErr = fmt.Errorf("%v\nunable to flush object handle %q: %v", retErr, objectHandle, err)
+		}
+	}()
+
+	fmt.Printf("Loaded secrets objectHandle: 0x%x", objectHandle)
 	return nil
 }
 

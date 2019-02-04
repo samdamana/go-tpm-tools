@@ -4,15 +4,18 @@ import (
 	"encoding/hex"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 
 	"github.com/google/go-tpm/tpm2"
+	"github.com/google/go-tpm/tpmutil"
 )
 
 var (
 	secretMessage = "SamIsMySpecialGuy"
 	tpmPath       = flag.String("tpm-path", "/dev/tpm0", "path to a TPM character device or socket")
 	pcr           = flag.Int("pcr", 7, "PCR to seal data to. Must be within [0, 23].")
+	password      = flag.String("password", "", "password to seal the data with")
 	srkPassword   = "" // TODO
 	srkTemplate   = tpm2.Public{
 		Type:       tpm2.AlgRSA,
@@ -48,8 +51,6 @@ func main() {
 }
 
 func run(pcr int, tpmPath string) (retErr error) {
-	fmt.Println("Testing Seal/Unseal vTPM stuff.")
-	fmt.Printf("Secret Str: \"%s\"\nSecret Hex: %s\n", secretMessage, hex.EncodeToString([]byte(secretMessage)))
 	// Open the TPM
 	rwc, err := tpm2.OpenTPM(tpmPath)
 	if err != nil {
@@ -71,7 +72,33 @@ func run(pcr int, tpmPath string) (retErr error) {
 		}
 	}()
 
-	fmt.Printf("srkHandle: 0x%x\npublicKey: %v\n", srkHandle, publicKey)
+	fmt.Printf("SRK Handle: 0x%x\nSRK publicKey: %v\n", srkHandle, publicKey)
 
+	pcrVal, err := tpm2.ReadPCR(rwc, pcr, tpm2.AlgSHA256)
+	if err != nil {
+		return fmt.Errorf("unable to read PCR: %v", err)
+	}
+	fmt.Printf("PCR %v value: 0x%x\n", pcr, pcrVal)
+
+	sessHandle, policy, err := policyPCRPasswordSession(rwc, pcr, *password)
+	if err != nil {
+		return fmt.Errorf("unable to get policy: %v", err)
+	}
+	fmt.Printf("Session Handle: 0x%x\nPolicy: %v\n", sessHandle, policy)
+
+	fmt.Println("Data to be sealed...")
+	dataToSeal := []byte(secretMessage)
+	fmt.Printf("Secret Str: \"%s\"\nSecret Hex: %s\n", secretMessage, hex.EncodeToString(dataToSeal))
+	privateArea, publicArea, err := tpm2.Seal(rwc, srkHandle, srkPassword, *password, policy, dataToSeal)
+	if err != nil {
+		return fmt.Errorf("unable to seal data: %v", err)
+	}
+	fmt.Printf("Sealed public: 0x%x\nSealed private: 0x%x\n", publicArea, privateArea)
+
+	// DONE
 	return nil
+}
+
+func policyPCRPasswordSession(rwc io.ReadWriteCloser, pcr int, password string) (sessHandle tpmutil.Handle, policy []byte, retErr error) {
+	return tpm2.HandlePasswordSession, nil, nil
 }

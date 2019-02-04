@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"os"
 
 	"github.com/google/go-tpm/tpm2"
@@ -18,6 +19,9 @@ var (
 	tpmPath       = flag.String("tpm-path", "/dev/tpm0", "path to a TPM character device or socket")
 	pcr           = flag.Int("pcr", 7, "PCR to seal data to. Must be within [0, 23].")
 	password      = flag.String("password", "", "password to seal the data with")
+	filePath      = flag.String("file-path", "key1.pem", "key file to save and or load.")
+	seal          = flag.Bool("seal", true, "Whether to seal.")
+	unseal        = flag.Bool("unseal", true, "Whether to unseal.")
 	srkPassword   = "" // TODO
 	srkTemplate   = tpm2.Public{
 		Type:       tpm2.AlgRSA,
@@ -44,15 +48,21 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Invalid flag 'pcr': value %d is out of range", *pcr)
 		os.Exit(1)
 	}
+	if *seal {
+		err := sealSecret(*pcr, *tpmPath, *password, *filePath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+	}
 
-	err := run(*pcr, *tpmPath)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+	if *unseal {
+
 	}
 }
 
-func run(pcr int, tpmPath string) (retErr error) {
+func sealSecret(pcr int, tpmPath, password, filePath string) (retErr error) {
+	fmt.Println("***** SEAL SECRET *****")
 	// Open the TPM
 	rwc, err := tpm2.OpenTPM(tpmPath)
 	if err != nil {
@@ -82,7 +92,7 @@ func run(pcr int, tpmPath string) (retErr error) {
 	}
 	fmt.Printf("PCR %v value: 0x%x\n", pcr, pcrVal)
 
-	sessHandle, policy, err := policyPCRPasswordSession(rwc, pcr, *password)
+	sessHandle, policy, err := policyPCRPasswordSession(rwc, pcr, password)
 	if err != nil {
 		return fmt.Errorf("unable to get policy: %v", err)
 	}
@@ -91,7 +101,7 @@ func run(pcr int, tpmPath string) (retErr error) {
 	fmt.Println("Data to be sealed...")
 	dataToSeal := []byte(secretMessage)
 	fmt.Printf("Secret Str: \"%s\"\nSecret Hex: %s\n", secretMessage, hex.EncodeToString(dataToSeal))
-	privateArea, publicArea, err := tpm2.Seal(rwc, srkHandle, srkPassword, *password, policy, dataToSeal)
+	privateArea, publicArea, err := tpm2.Seal(rwc, srkHandle, srkPassword, password, policy, dataToSeal)
 	if err != nil {
 		return fmt.Errorf("unable to seal data: %v", err)
 	}
@@ -100,9 +110,15 @@ func run(pcr int, tpmPath string) (retErr error) {
 	if err != nil {
 		return err
 	}
-	fmt.Println(enc)
 
-	// DONE
+	if err = ioutil.WriteFile(filePath, []byte(enc), 0644); err != nil {
+		return err
+	}
+	return nil
+}
+
+func unsealSecret(pcr int, tpmPath, password, filePath string) (retErr error) {
+	fmt.Println("***** UNSEAL SECRET *****")
 	return nil
 }
 

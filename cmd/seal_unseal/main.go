@@ -19,7 +19,7 @@ var (
 	tpmPath       = flag.String("tpm-path", "/dev/tpm0", "path to a TPM character device or socket")
 	pcr           = flag.Int("pcr", 7, "PCR to seal data to. Must be within [0, 23].")
 	password      = flag.String("password", "", "password to seal the data with")
-	filePath      = flag.String("file-path", "key1.pem", "key file to save and or load.")
+	filename      = flag.String("filename", "key1.pem", "key file to save and or load.")
 	seal          = flag.Bool("seal", true, "Whether to seal.")
 	unseal        = flag.Bool("unseal", true, "Whether to unseal.")
 	srkPassword   = "" // TODO
@@ -49,7 +49,7 @@ func main() {
 		os.Exit(1)
 	}
 	if *seal {
-		err := sealSecret(*pcr, *tpmPath, *password, *filePath)
+		err := sealSecret(*pcr, *tpmPath, *password, *filename)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
@@ -57,11 +57,15 @@ func main() {
 	}
 
 	if *unseal {
-
+		err := unsealSecret(*pcr, *tpmPath, *password, *filename)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
 	}
 }
 
-func sealSecret(pcr int, tpmPath, password, filePath string) (retErr error) {
+func sealSecret(pcr int, tpmPath, password, filename string) (retErr error) {
 	fmt.Println("***** SEAL SECRET *****")
 	// Open the TPM
 	rwc, err := tpm2.OpenTPM(tpmPath)
@@ -106,39 +110,55 @@ func sealSecret(pcr int, tpmPath, password, filePath string) (retErr error) {
 		return fmt.Errorf("unable to seal data: %v", err)
 	}
 
-	enc, err := pemEncode(publicArea, privateArea)
+	enc, err := pemEncode(privateArea, publicArea)
 	if err != nil {
 		return err
 	}
 
-	if err = ioutil.WriteFile(filePath, []byte(enc), 0644); err != nil {
+	if err = ioutil.WriteFile(filename, enc, 0644); err != nil {
 		return err
 	}
 	return nil
 }
 
-func unsealSecret(pcr int, tpmPath, password, filePath string) (retErr error) {
+func unsealSecret(pcr int, tpmPath, password, filename string) (retErr error) {
 	fmt.Println("***** UNSEAL SECRET *****")
+	keyData, err := ioutil.ReadFile(filename)
+	privateArea, publicArea, err := pemDecode(keyData)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("Decoded private: %s\nDecoded public: %s\n", hex.EncodeToString(privateArea), hex.EncodeToString(publicArea))
 	return nil
 }
 
-func pemEncode(public, private []byte) (string, error) {
+func pemEncode(private, public []byte) ([]byte, error) {
 	buf := new(bytes.Buffer)
-	publicBlock := &pem.Block{
-		Type:  "SEALED PUBLIC",
-		Bytes: public,
-	}
-	privateBlock := &pem.Block{
+	if err := pem.Encode(buf, &pem.Block{
 		Type:  "SEALED PRIVATE",
 		Bytes: private,
+	}); err != nil {
+		return nil, err
 	}
-	if err := pem.Encode(buf, publicBlock); err != nil {
-		return "", err
+	if err := pem.Encode(buf, &pem.Block{
+		Type:  "SEALED PUBLIC",
+		Bytes: public,
+	}); err != nil {
+		return nil, err
 	}
-	if err := pem.Encode(buf, privateBlock); err != nil {
-		return "", err
+	return buf.Bytes(), nil
+}
+
+func pemDecode(enc []byte) ([]byte, []byte, error) {
+	privateBlock, rest := pem.Decode(enc)
+	if privateBlock == nil || privateBlock.Type != "SEALED PRIVATE" {
+		return nil, nil, fmt.Errorf("Error decoding PEM block. Does not contain SEALED PRIVATE: %s", enc)
 	}
-	return buf.String(), nil
+	publicBlock, _ := pem.Decode(rest)
+	if publicBlock == nil || publicBlock.Type != "SEALED PUBLIC" {
+		return nil, nil, fmt.Errorf("Error decoding PEM block. Does not contain SEALED PUBLIC: %s", rest)
+	}
+	return privateBlock.Bytes, publicBlock.Bytes, nil
 }
 
 func policyPCRPasswordSession(rwc io.ReadWriteCloser, pcr int, password string) (sessHandle tpmutil.Handle, policy []byte, retErr error) {

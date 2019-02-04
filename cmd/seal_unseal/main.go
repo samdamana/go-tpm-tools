@@ -163,7 +163,13 @@ func unsealSecret(pcr int, tpmPath, password, filename string) (retErr error) {
 		}
 	}()
 
-	fmt.Printf("Loaded secrets objectHandle: 0x%x", objectHandle)
+	fmt.Printf("Loaded secrets objectHandle: 0x%x\n", objectHandle)
+
+	unsealed, err := tpm2.Unseal(rwc, objectHandle, password)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("Unsealed: %s", string(unsealed))
 	return nil
 }
 

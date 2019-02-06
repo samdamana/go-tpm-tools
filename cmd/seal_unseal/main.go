@@ -100,6 +100,11 @@ func sealSecret(pcr int, tpmPath, password, filename string) (retErr error) {
 	if err != nil {
 		return fmt.Errorf("unable to get policy: %v", err)
 	}
+	defer func() {
+		if err := tpm2.FlushContext(rwc, sessHandle); err != nil {
+			retErr = fmt.Errorf("%v\nunable to flush session: %v", retErr, err)
+		}
+	}()
 	fmt.Printf("Session Handle: 0x%x\nPolicy: %v\n", sessHandle, policy)
 
 	fmt.Println("Data to be sealed...")
@@ -180,7 +185,7 @@ func unsealSecret(pcr int, tpmPath, password, filename string) (retErr error) {
 	if err != nil {
 		return fmt.Errorf("unable to unseal data: %v", err)
 	}
-	fmt.Printf("Unsealed: %s", string(unsealedData))
+	fmt.Printf("Unsealed: %s\n", string(unsealedData))
 	return nil
 }
 
@@ -214,8 +219,7 @@ func pemDecode(enc []byte) ([]byte, []byte, error) {
 }
 
 func policyPCRPasswordSession(rwc io.ReadWriteCloser, pcr int, password string) (sessHandle tpmutil.Handle, policy []byte, retErr error) {
-
-	// FYI, this is not a very secure session.
+	// FYI, this is not a very secure session. READ the thing and change it?
 	sessHandle, _, err := tpm2.StartAuthSession(
 		rwc,
 		tpm2.HandleNull,  /*tpmKey*/

@@ -90,11 +90,11 @@ func sealSecret(pcr int, tpmPath, password, filename string) (retErr error) {
 
 	fmt.Printf("SRK Handle: 0x%x\nSRK publicKey: %v\n", srkHandle, publicKey)
 
-	pcrVal, err := tpm2.ReadPCR(rwc, pcr, tpm2.AlgSHA256)
-	if err != nil {
-		return fmt.Errorf("unable to read PCR: %v", err)
-	}
-	fmt.Printf("PCR %v value: 0x%x\n", pcr, pcrVal)
+	// pcrVal, err := tpm2.ReadPCR(rwc, pcr, tpm2.AlgSHA256)
+	// if err != nil {
+	// 	return fmt.Errorf("unable to read PCR: %v", err)
+	// }
+	// fmt.Printf("PCR %v value: 0x%x\n", pcr, pcrVal)
 
 	sessHandle, policy, err := policyPCRPasswordSession(rwc, pcr, password)
 	if err != nil {
@@ -219,7 +219,8 @@ func pemDecode(enc []byte) ([]byte, []byte, error) {
 }
 
 func policyPCRPasswordSession(rwc io.ReadWriteCloser, pcr int, password string) (sessHandle tpmutil.Handle, policy []byte, retErr error) {
-	// FYI, this is not a very secure session. READ the thing and change it?
+	// This is not a very secure session but since this TPM access is single-op
+	// and local it is not a big deal.
 	sessHandle, _, err := tpm2.StartAuthSession(
 		rwc,
 		tpm2.HandleNull,  /*tpmKey*/
